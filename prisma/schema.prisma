@@ -1,0 +1,347 @@
+// ============================================================================
+// PRISMA SCHEMA: prisma/schema.prisma
+// SISTEM INFORMASI MANAJEMEN DATA AKADEMIK SISWA (SIMPATIK)
+// ============================================================================
+
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions", "fullTextSearch"]
+}
+
+datasource db {
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  directUrl  = env("DIRECT_URL")
+  extensions = [pgcrypto, citext, pg_trgm]
+}
+
+// ============================================================================
+// ENUMS (Sesuai V001__extensions_and_enums.sql)
+// ============================================================================
+
+enum RolePengguna {
+  ADMIN
+  GURU
+
+  @@map("role_pengguna")
+}
+
+enum JenisKelamin {
+  LAKI_LAKI
+  PEREMPUAN
+
+  @@map("jenis_kelamin")
+}
+
+enum JenisNilai {
+  HARIAN
+  TUGAS
+  UTS
+  UAS
+
+  @@map("jenis_nilai")
+}
+
+enum StatusKehadiran {
+  HADIR
+  SAKIT
+  IZIN
+  ALPA
+
+  @@map("status_kehadiran")
+}
+
+enum TingkatPrestasi {
+  SEKOLAH
+  KECAMATAN
+  KABUPATEN
+  PROVINSI
+  NASIONAL
+  INTERNASIONAL
+
+  @@map("tingkat_prestasi")
+}
+
+enum StatusVerifikasi {
+  PENDING
+  DIVERIFIKASI
+  DITOLAK
+
+  @@map("status_verifikasi")
+}
+
+enum AspekPerkembangan {
+  AKADEMIK
+  SOSIAL
+  EMOSIONAL
+  KARAKTER
+  KETERAMPILAN
+
+  @@map("aspek_perkembangan")
+}
+
+enum StatusPerkembanganSiswa {
+  BAIK
+  PERHATIAN
+  KRITIS
+
+  @@map("status_perkembangan_siswa")
+}
+
+// ============================================================================
+// MODELS (Sesuai V002__tables.sql)
+// ============================================================================
+
+model User {
+  id           String       @id @default(dbgenerated("gen_random_uuid()")) @map("id") @db.Uuid
+  name         String       @map("name") @db.VarChar(100)
+  email        String       @unique @map("email") @db.Citext
+  passwordHash String       @map("password_hash") @db.VarChar(255)
+  role         RolePengguna @map("role")
+  isActive     Boolean      @default(true) @map("is_active")
+  lastLoginAt  DateTime?    @map("last_login_at") @db.Timestamptz(6)
+  createdAt    DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime     @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  // Relasi
+  guru                 Guru?
+  auditLogs            AuditLog[]
+  prestasiDiverifikasi Prestasi[] @relation("PrestasiVerifikator")
+
+  @@map("users")
+}
+
+model Guru {
+  id        String    @id @default(dbgenerated("gen_random_uuid()")) @map("id") @db.Uuid
+  userId    String?   @unique @map("user_id") @db.Uuid
+  nip       String    @unique @map("nip") @db.VarChar(30)
+  nama      String    @map("nama") @db.VarChar(100)
+  alamat    String?   @map("alamat") @db.Text
+  noTelepon String?   @map("no_telepon") @db.VarChar(20)
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz(6)
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  // Relasi
+  user                User?                 @relation(fields: [userId], references: [id], onDelete: Restrict)
+  kelasWali           Kelas[]               @relation("WaliKelas")
+  penugasan           PenugasanGuru[]
+  nilaiDicatat        Nilai[]
+  kehadiranDicatat    Kehadiran[]
+  prestasiDicatat     Prestasi[]            @relation("PrestasiPencatat")
+  catatanPerkembangan CatatanPerkembangan[]
+
+  @@map("guru")
+}
+
+model Kelas {
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @map("id") @db.Uuid
+  nama        String    @map("nama") @db.VarChar(50)
+  tingkat     Int       @map("tingkat") @db.SmallInt
+  tahunAjaran String    @map("tahun_ajaran") @db.VarChar(9)
+  waliKelasId String?   @map("wali_kelas_id") @db.Uuid
+  deletedAt   DateTime? @map("deleted_at") @db.Timestamptz(6)
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  // Relasi
+  waliKelas Guru?           @relation("WaliKelas", fields: [waliKelasId], references: [id], onDelete: SetNull)
+  siswa     Siswa[]
+  penugasan PenugasanGuru[]
+
+  @@unique([nama, tahunAjaran], map: "uq_kelas_nama_tahun_ajaran")
+  @@map("kelas")
+}
+
+model Siswa {
+  id           String       @id @default(dbgenerated("gen_random_uuid()")) @map("id") @db.Uuid
+  nis          String       @unique @map("nis") @db.VarChar(20)
+  nama         String       @map("nama") @db.VarChar(100)
+  jenisKelamin JenisKelamin @map("jenis_kelamin")
+  tanggalLahir DateTime     @map("tanggal_lahir") @db.Date
+  alamat       String?      @map("alamat") @db.Text
+  namaOrangTua String?      @map("nama_orang_tua") @db.VarChar(100)
+  noTelepon    String?      @map("no_telepon") @db.VarChar(20)
+  kelasId      String?      @map("kelas_id") @db.Uuid
+  deletedAt    DateTime?    @map("deleted_at") @db.Timestamptz(6)
+  createdAt    DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime     @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  // Relasi
+  kelas               Kelas?                @relation(fields: [kelasId], references: [id], onDelete: SetNull)
+  nilai               Nilai[]
+  kehadiran           Kehadiran[]
+  prestasi            Prestasi[]
+  catatanPerkembangan CatatanPerkembangan[]
+
+  @@map("siswa")
+}
+
+model MataPelajaran {
+  id        String    @id @default(dbgenerated("gen_random_uuid()")) @map("id") @db.Uuid
+  kode      String    @unique @map("kode") @db.VarChar(10)
+  nama      String    @map("nama") @db.VarChar(100)
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz(6)
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  // Relasi
+  penugasan PenugasanGuru[]
+  nilai     Nilai[]
+  kehadiran Kehadiran[]
+
+  @@map("mata_pelajaran")
+}
+
+model PenugasanGuru {
+  id              String   @id @default(dbgenerated("gen_random_uuid()")) @map("id") @db.Uuid
+  guruId          String   @map("guru_id") @db.Uuid
+  kelasId         String   @map("kelas_id") @db.Uuid
+  mataPelajaranId String   @map("mata_pelajaran_id") @db.Uuid
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  // Relasi
+  guru  Guru          @relation(fields: [guruId], references: [id], onDelete: Cascade)
+  kelas Kelas         @relation(fields: [kelasId], references: [id], onDelete: Cascade)
+  mapel MataPelajaran @relation(fields: [mataPelajaranId], references: [id], onDelete: Cascade)
+
+  @@unique([guruId, kelasId, mataPelajaranId], map: "uq_penugasan_guru_kelas_mapel")
+  @@index([guruId], map: "idx_penugasan_guru_guru_id")
+  @@index([kelasId], map: "idx_penugasan_guru_kelas_id")
+  @@map("penugasan_guru")
+}
+
+model Nilai {
+  id              String     @id @default(dbgenerated("gen_random_uuid()")) @map("id") @db.Uuid
+  siswaId         String     @map("siswa_id") @db.Uuid
+  mataPelajaranId String     @map("mata_pelajaran_id") @db.Uuid
+  guruId          String     @map("guru_id") @db.Uuid
+  periode         String     @map("periode") @db.VarChar(20)
+  jenis           JenisNilai @map("jenis")
+  pertemuan       Int        @default(1) @map("pertemuan") @db.SmallInt
+  nilai           Decimal    @map("nilai") @db.Decimal(5, 2)
+  createdAt       DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime   @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  // Relasi
+  siswa Siswa         @relation(fields: [siswaId], references: [id], onDelete: Cascade)
+  mapel MataPelajaran @relation(fields: [mataPelajaranId], references: [id], onDelete: Restrict)
+  guru  Guru          @relation(fields: [guruId], references: [id], onDelete: Restrict)
+
+  @@unique([siswaId, mataPelajaranId, periode, jenis, pertemuan], map: "uq_nilai_siswa_mapel_periode_jenis_pertemuan")
+  @@index([siswaId, mataPelajaranId, periode], map: "idx_nilai_siswa_mapel_periode")
+  @@index([mataPelajaranId, periode], map: "idx_nilai_mapel_periode")
+  @@map("nilai")
+}
+
+model Kehadiran {
+  id              String          @id @default(dbgenerated("gen_random_uuid()")) @map("id") @db.Uuid
+  siswaId         String          @map("siswa_id") @db.Uuid
+  mataPelajaranId String          @map("mata_pelajaran_id") @db.Uuid
+  guruId          String          @map("guru_id") @db.Uuid
+  tanggal         DateTime        @map("tanggal") @db.Date
+  status          StatusKehadiran @map("status")
+  keterangan      String?         @map("keterangan") @db.Text
+  createdAt       DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime        @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  // Relasi
+  siswa Siswa         @relation(fields: [siswaId], references: [id], onDelete: Cascade)
+  mapel MataPelajaran @relation(fields: [mataPelajaranId], references: [id], onDelete: Restrict)
+  guru  Guru          @relation(fields: [guruId], references: [id], onDelete: Restrict)
+
+  @@unique([siswaId, mataPelajaranId, tanggal], map: "uq_kehadiran_siswa_mapel_tanggal")
+  @@index([siswaId, tanggal], map: "idx_kehadiran_siswa_tanggal")
+  @@index([mataPelajaranId, tanggal], map: "idx_kehadiran_mapel_tanggal")
+  @@map("kehadiran")
+}
+
+model Prestasi {
+  id                 String           @id @default(dbgenerated("gen_random_uuid()")) @map("id") @db.Uuid
+  siswaId            String           @map("siswa_id") @db.Uuid
+  judul              String           @map("judul") @db.VarChar(200)
+  bidang             String           @map("bidang") @db.VarChar(50)
+  tingkat            TingkatPrestasi  @map("tingkat")
+  peringkat          String?          @map("peringkat") @db.VarChar(50)
+  tanggalPerolehan   DateTime         @map("tanggal_perolehan") @db.Date
+  penyelenggara      String?          @map("penyelenggara") @db.VarChar(150)
+  statusVerifikasi   StatusVerifikasi @default(PENDING) @map("status_verifikasi")
+  catatanVerifikasi  String?          @map("catatan_verifikasi") @db.Text
+  dicatatOlehId      String           @map("dicatat_oleh_id") @db.Uuid
+  diverifikasiOlehId String?          @map("diverifikasi_oleh_id") @db.Uuid
+  diverifikasiAt     DateTime?        @map("diverifikasi_at") @db.Timestamptz(6)
+  createdAt          DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime         @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  // Relasi
+  siswa            Siswa           @relation(fields: [siswaId], references: [id], onDelete: Cascade)
+  pencatat         Guru            @relation("PrestasiPencatat", fields: [dicatatOlehId], references: [id], onDelete: Restrict)
+  diverifikasiOleh User?           @relation("PrestasiVerifikator", fields: [diverifikasiOlehId], references: [id], onDelete: SetNull)
+  bukti            BuktiPrestasi[]
+
+  @@index([siswaId], map: "idx_prestasi_siswa_id")
+  @@index([statusVerifikasi], map: "idx_prestasi_status_verifikasi")
+  @@index([bidang, tingkat], map: "idx_prestasi_bidang_tingkat")
+  @@map("prestasi")
+}
+
+model BuktiPrestasi {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @map("id") @db.Uuid
+  prestasiId     String   @map("prestasi_id") @db.Uuid
+  namaFileAsli   String   @map("nama_file_asli") @db.VarChar(255)
+  namaFileSimpan String   @unique @map("nama_file_simpan") @db.VarChar(255)
+  mimeType       String   @map("mime_type") @db.VarChar(100)
+  ukuranByte     Int      @map("ukuran_byte")
+  storagePath    String   @map("storage_path") @db.Text
+  uploadedAt     DateTime @default(now()) @map("uploaded_at") @db.Timestamptz(6)
+
+  // Relasi
+  prestasi Prestasi @relation(fields: [prestasiId], references: [id], onDelete: Cascade)
+
+  @@map("bukti_prestasi")
+}
+
+model CatatanPerkembangan {
+  id        String            @id @default(dbgenerated("gen_random_uuid()")) @map("id") @db.Uuid
+  siswaId   String            @map("siswa_id") @db.Uuid
+  guruId    String            @map("guru_id") @db.Uuid
+  aspek     AspekPerkembangan @map("aspek")
+  isi       String            @map("isi") @db.Text
+  tanggal   DateTime          @map("tanggal") @db.Date
+  createdAt DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime          @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  // Relasi
+  siswa Siswa @relation(fields: [siswaId], references: [id], onDelete: Cascade)
+  guru  Guru  @relation(fields: [guruId], references: [id], onDelete: Restrict)
+
+  @@index([siswaId, tanggal(sort: Desc)], map: "idx_catatan_perkembangan_siswa_tanggal")
+  @@map("catatan_perkembangan")
+}
+
+model PengaturanSistem {
+  kunci      String   @id @map("kunci") @db.VarChar(50)
+  nilai      String   @map("nilai") @db.VarChar(255)
+  keterangan String?  @map("keterangan") @db.Text
+  updatedAt  DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@map("pengaturan_sistem")
+}
+
+model AuditLog {
+  id          BigInt   @id @default(autoincrement()) @map("id")
+  userId      String?  @map("user_id") @db.Uuid
+  aksi        String   @map("aksi") @db.VarChar(20)
+  entitas     String   @map("entitas") @db.VarChar(50)
+  entitasId   String?  @map("entitas_id") @db.Uuid
+  dataSebelum Json?    @map("data_sebelum") @db.JsonB
+  dataSesudah Json?    @map("data_sesudah") @db.JsonB
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  // Relasi
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([entitas, entitasId], map: "idx_audit_log_entitas_entitas_id")
+  @@index([createdAt(sort: Desc)], map: "idx_audit_log_created_at_desc")
+  @@map("audit_log")
+}

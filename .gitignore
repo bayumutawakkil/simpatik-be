@@ -1,0 +1,14 @@
+node_modules/
+dist/
+coverage/
+.env
+.env.*
+!.env.example
+*.log
+uploads/
+prisma/*.db
+prisma/*.db-journal
+prisma/seed.ts
+database/seeds/
+database/generate_seeds.js
+.DS_Store
