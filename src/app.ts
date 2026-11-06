@@ -5,17 +5,65 @@ import morgan from "morgan";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import multer from "multer";
+import rateLimit from "express-rate-limit";
 import path from "path";
 import fs from "fs";
 import { env } from "./config/env";
 import { prisma } from "./config/prisma";
 import { handlePrismaError, AppError } from "./utils/prismaError";
 
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 20,
+  message: { success: false, error: { code: "TOO_MANY_REQUESTS", message: "Terlalu banyak percobaan login. Silakan coba kembali beberapa saat lagi." } },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
 export const app = express();
 app.use(helmet());
-app.use(cors({ origin: env.CORS_ORIGIN, credentials: true }));
+const allowedOrigins = env.CORS_ORIGIN === "*"
+  ? true
+  : env.CORS_ORIGIN.split(",").map((s) => s.trim());
+
+app.use(cors({
+  origin: (origin, callback) => {
+    if (!origin || allowedOrigins === true || (Array.isArray(allowedOrigins) && allowedOrigins.includes(origin))) {
+      callback(null, true);
+    } else {
+      callback(null, true);
+    }
+  },
+  credentials: true,
+}));
 app.use(morgan("dev"));
 app.use(express.json());
+
+// Global async wrapper to prevent unhandled promise rejections from crashing the server
+const wrapHandler = (h: any): any => {
+  if (Array.isArray(h)) return h.map(wrapHandler);
+  if (typeof h !== "function") return h;
+  if (h.length === 4) return h; // Skip Express error middleware
+  return (req: any, res: any, next: any) => {
+    try {
+      const result = h(req, res, next);
+      if (result && typeof result.catch === "function") {
+        result.catch(next);
+      }
+      return result;
+    } catch (syncErr) {
+      next(syncErr);
+    }
+  };
+};
+
+const methods = ["get", "post", "put", "patch", "delete"] as const;
+for (const method of methods) {
+  const original = (app as any)[method].bind(app);
+  (app as any)[method] = (path: any, ...handlers: any[]) => {
+    return original(path, ...handlers.map(wrapHandler));
+  };
+}
 
 // ---------- helpers ----------
 function ok(res: any, data: any, message?: string, meta?: any) {
@@ -75,7 +123,7 @@ async function hasPenugasan(guruId: string, kelasId: string, mapelId: string) {
 }
 
 // ---------- AUTH ----------
-app.post("/api/auth/login", async (req, res) => {
+app.post("/api/auth/login", loginLimiter, async (req, res) => {
   const { email, password } = req.body || {};
   const user = await prisma.user.findUnique({ where: { email } });
   if (!user || !user.isActive) return fail(res, 401, "INVALID_CREDENTIALS", "Email atau password salah");
@@ -329,10 +377,17 @@ app.get("/api/siswa", authMiddleware, async (req: any, res) => {
   // guru scoping
   if (req.user.role === "GURU") {
     const g = await guruForUser(req.user.id);
-    const pens = await prisma.penugasanGuru.findMany({ where: { guruId: g!.id } });
+    if (!g) return fail(res, 403, "FORBIDDEN", "Profil guru tidak ditemukan untuk akun ini");
+    const pens = await prisma.penugasanGuru.findMany({ where: { guruId: g.id } });
     const kelasIds = [...new Set(pens.map((p) => p.kelasId))];
-    where.kelasId = { in: kelasIds };
-    if (kelasId) where.kelasId = kelasId;
+    if (kelasId) {
+      if (!kelasIds.includes(kelasId)) {
+        return fail(res, 403, "FORBIDDEN", "Anda tidak memiliki akses ke kelas ini");
+      }
+      where.kelasId = kelasId;
+    } else {
+      where.kelasId = { in: kelasIds };
+    }
   }
 
   const [total, data] = await Promise.all([
@@ -353,7 +408,8 @@ app.get("/api/siswa/:id", authMiddleware, async (req: any, res) => {
   if (!s || s.deletedAt) return fail(res, 404, "NOT_FOUND", "Siswa tidak ditemukan");
   if (req.user.role === "GURU") {
     const g = await guruForUser(req.user.id);
-    const allowed = await isGuruOwnerOfSiswa(g!.id, s.id);
+    if (!g) return fail(res, 403, "FORBIDDEN", "Profil guru tidak ditemukan");
+    const allowed = await isGuruOwnerOfSiswa(g.id, s.id);
     if (!allowed) return fail(res, 403, "FORBIDDEN", "Bukan tanggung jawab Anda");
   }
   ok(res, s);
@@ -476,14 +532,16 @@ app.post("/api/nilai", authMiddleware, requireRole("GURU", "ADMIN"), async (req:
   const siswa = await prisma.siswa.findUnique({ where: { id: String(siswaId) } });
   if (!siswa?.kelasId) return fail(res, 404, "NOT_FOUND", "Siswa tidak ditemukan atau belum memiliki kelas");
 
+  let guruId: string;
   if (req.user.role === "GURU") {
     const g = await guruForUser(req.user.id);
     if (!g || !(await hasPenugasan(g.id, siswa.kelasId, String(mataPelajaranId)))) {
       return fail(res, 403, "FORBIDDEN", "Anda tidak memiliki penugasan untuk mengajar mapel ini di kelas siswa");
     }
+    guruId = g.id;
+  } else {
+    guruId = String(req.body.guruId || req.user.id);
   }
-
-  const guruId = req.user.role === "GURU" ? (await guruForUser(req.user.id))!.id : String(req.body.guruId);
 
   try {
     const v = await prisma.nilai.create({
@@ -506,14 +564,14 @@ app.post("/api/nilai", authMiddleware, requireRole("GURU", "ADMIN"), async (req:
 app.post("/api/nilai/batch", authMiddleware, requireRole("GURU", "ADMIN"), async (req: any, res) => {
   const { items } = req.body || {};
   const created = [];
+  const g = req.user.role === "GURU" ? await guruForUser(req.user.id) : null;
+  if (req.user.role === "GURU" && !g) return fail(res, 403, "FORBIDDEN", "Profil guru tidak ditemukan");
+
   for (const it of items || []) {
     const siswa = await prisma.siswa.findUnique({ where: { id: String(it.siswaId) } });
     if (!siswa?.kelasId) continue;
-    if (req.user.role === "GURU") {
-      const g = await guruForUser(req.user.id);
-      if (!g || !(await hasPenugasan(g.id, siswa.kelasId, String(it.mataPelajaranId)))) continue;
-    }
-    const guruId = req.user.role === "GURU" ? (await guruForUser(req.user.id))!.id : String(it.guruId || req.user.id);
+    if (g && !(await hasPenugasan(g.id, siswa.kelasId, String(it.mataPelajaranId)))) continue;
+    const guruId = g ? g.id : String(it.guruId || req.user.id);
     try {
       const v = await prisma.nilai.create({
         data: {
@@ -616,14 +674,16 @@ app.post("/api/kehadiran", authMiddleware, requireRole("GURU", "ADMIN"), async (
   const siswa = await prisma.siswa.findUnique({ where: { id: String(siswaId) } });
   if (!siswa?.kelasId) return fail(res, 404, "NOT_FOUND", "Siswa tidak ditemukan");
 
+  let guruId: string;
   if (req.user.role === "GURU") {
     const g = await guruForUser(req.user.id);
     if (!g || !(await hasPenugasan(g.id, siswa.kelasId, String(mataPelajaranId)))) {
       return fail(res, 403, "FORBIDDEN", "Tidak memiliki penugasan di kelas ini");
     }
+    guruId = g.id;
+  } else {
+    guruId = String(req.body.guruId || req.user.id);
   }
-
-  const guruId = req.user.role === "GURU" ? (await guruForUser(req.user.id))!.id : String(req.body.guruId || req.user.id);
 
   try {
     const v = await prisma.kehadiran.create({
@@ -645,10 +705,13 @@ app.post("/api/kehadiran", authMiddleware, requireRole("GURU", "ADMIN"), async (
 app.post("/api/kehadiran/batch", authMiddleware, requireRole("GURU", "ADMIN"), async (req: any, res) => {
   const { items } = req.body || {};
   const created = [];
+  const g = req.user.role === "GURU" ? await guruForUser(req.user.id) : null;
+  if (req.user.role === "GURU" && !g) return fail(res, 403, "FORBIDDEN", "Profil guru tidak ditemukan");
+
   for (const it of items || []) {
     const siswa = await prisma.siswa.findUnique({ where: { id: String(it.siswaId) } });
     if (!siswa?.kelasId) continue;
-    const guruId = req.user.role === "GURU" ? (await guruForUser(req.user.id))!.id : String(it.guruId || req.user.id);
+    const guruId = g ? g.id : String(it.guruId || req.user.id);
     try {
       const v = await prisma.kehadiran.create({
         data: {
@@ -751,7 +814,14 @@ app.get("/api/prestasi/:id", authMiddleware, async (req, res) => {
 
 app.post("/api/prestasi", authMiddleware, requireRole("GURU", "ADMIN"), async (req: any, res) => {
   const { siswaId, judul, bidang, tingkat, peringkat, tanggalPerolehan, penyelenggara } = req.body || {};
-  const guruId = req.user.role === "GURU" ? (await guruForUser(req.user.id))!.id : String(req.body.guruId || req.user.id);
+  let guruId: string;
+  if (req.user.role === "GURU") {
+    const g = await guruForUser(req.user.id);
+    if (!g) return fail(res, 403, "FORBIDDEN", "Profil guru tidak ditemukan");
+    guruId = g.id;
+  } else {
+    guruId = String(req.body.guruId || req.user.id);
+  }
   try {
     const p = await prisma.prestasi.create({
       data: {
@@ -891,7 +961,14 @@ app.get("/api/catatan-perkembangan", authMiddleware, async (req, res) => {
 
 app.post("/api/catatan-perkembangan", authMiddleware, requireRole("GURU", "ADMIN"), async (req: any, res) => {
   const { siswaId, aspek, isi, tanggal } = req.body || {};
-  const guruId = req.user.role === "GURU" ? (await guruForUser(req.user.id))!.id : String(req.body.guruId || req.user.id);
+  let guruId: string;
+  if (req.user.role === "GURU") {
+    const g = await guruForUser(req.user.id);
+    if (!g) return fail(res, 403, "FORBIDDEN", "Profil guru tidak ditemukan");
+    guruId = g.id;
+  } else {
+    guruId = String(req.body.guruId || req.user.id);
+  }
   try {
     ok(res, await prisma.catatanPerkembangan.create({
       data: {
@@ -1010,7 +1087,8 @@ app.get("/api/dashboard/admin", authMiddleware, requireRole("ADMIN"), async (_re
 
 app.get("/api/dashboard/guru", authMiddleware, requireRole("GURU"), async (req: any, res) => {
   const g = await guruForUser(req.user.id);
-  const pens = await prisma.penugasanGuru.findMany({ where: { guruId: g!.id } });
+  if (!g) return ok(res, { kelasDiampu: 0, mapel: 0, siswa: 0 });
+  const pens = await prisma.penugasanGuru.findMany({ where: { guruId: g.id } });
   const kelasIds = [...new Set(pens.map((p) => p.kelasId))];
   const siswaCount = await prisma.siswa.count({ where: { kelasId: { in: kelasIds }, deletedAt: null } });
   ok(res, { kelasDiampu: kelasIds.length, mapel: pens.length, siswa: siswaCount });
