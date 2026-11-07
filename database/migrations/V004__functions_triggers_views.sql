@@ -196,9 +196,15 @@ BEGIN
   SELECT EXISTS (
     SELECT 1 FROM penugasan_guru
     WHERE guru_id = NEW.guru_id
-      AND kelas_id = v_siswa_kelas_id
+      AND (kelas_id = v_siswa_kelas_id OR kelas_id IS NULL)
       AND mata_pelajaran_id = NEW.mata_pelajaran_id
-  ) INTO v_ada_penugasan;
+  )
+  OR EXISTS (
+    SELECT 1 FROM kelas
+    WHERE id = v_siswa_kelas_id
+      AND wali_kelas_id = NEW.guru_id
+  )
+  INTO v_ada_penugasan;
 
   IF NOT v_ada_penugasan THEN
     RAISE EXCEPTION 'Pelanggaran Penugasan: Guru % tidak ditugaskan untuk mengajar mapel % di kelas siswa %',

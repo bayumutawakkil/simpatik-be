@@ -75,7 +75,7 @@ CREATE TABLE IF NOT EXISTS mata_pelajaran (
 CREATE TABLE IF NOT EXISTS penugasan_guru (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   guru_id UUID NOT NULL REFERENCES guru(id) ON DELETE CASCADE,
-  kelas_id UUID NOT NULL REFERENCES kelas(id) ON DELETE CASCADE,
+  kelas_id UUID REFERENCES kelas(id) ON DELETE CASCADE,
   mata_pelajaran_id UUID NOT NULL REFERENCES mata_pelajaran(id) ON DELETE CASCADE,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   CONSTRAINT uq_penugasan_guru_kelas_mapel UNIQUE (guru_id, kelas_id, mata_pelajaran_id)

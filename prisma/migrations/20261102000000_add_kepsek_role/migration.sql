@@ -1,0 +1,1 @@
+ALTER TYPE "role_pengguna" ADD VALUE IF NOT EXISTS 'KEPSEK';

@@ -52,6 +52,10 @@ SEED_ADMIN_PASSWORD="admin123"
 SEED_GURU_PASSWORD="password123"
 ```
 
+Akun seed kepala sekolah menggunakan `kepsek@simpatik.test` dengan password yang sama
+dengan `SEED_GURU_PASSWORD`. Role `KEPSEK` bersifat read-only untuk data guru, siswa,
+nilai, dan prestasi.
+
 ---
 
 ## 3. Langkah Instalasi & Menjalankan Back End
