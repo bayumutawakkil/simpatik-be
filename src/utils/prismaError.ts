@@ -55,11 +55,7 @@ export function handlePrismaError(err: unknown): AppError {
         );
       }
       default:
-        return new AppError(
-          500,
-          `PRISMA_${err.code}`,
-          `Terjadi kesalahan pada query basis data: ${err.message}`
-        );
+        return new AppError(500, "INTERNAL_ERROR", "Terjadi kesalahan server internal.");
     }
   }
 
@@ -68,7 +64,8 @@ export function handlePrismaError(err: unknown): AppError {
   }
 
   if (err instanceof Error) {
-    return new AppError(500, "INTERNAL_ERROR", err.message);
+    const expose = process.env.NODE_ENV !== "production" && process.env.NODE_ENV !== "test";
+    return new AppError(500, "INTERNAL_ERROR", expose ? err.message : "Terjadi kesalahan server internal.");
   }
 
   return new AppError(500, "INTERNAL_ERROR", "Terjadi kesalahan server internal.");

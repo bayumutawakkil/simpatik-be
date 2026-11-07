@@ -22,6 +22,7 @@ datasource db {
 enum RolePengguna {
   ADMIN
   GURU
+  KEPSEK
 
   @@map("role_pengguna")
 }
@@ -196,13 +197,13 @@ model MataPelajaran {
 model PenugasanGuru {
   id              String   @id @default(dbgenerated("gen_random_uuid()")) @map("id") @db.Uuid
   guruId          String   @map("guru_id") @db.Uuid
-  kelasId         String   @map("kelas_id") @db.Uuid
+  kelasId         String?  @map("kelas_id") @db.Uuid
   mataPelajaranId String   @map("mata_pelajaran_id") @db.Uuid
   createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
   // Relasi
   guru  Guru          @relation(fields: [guruId], references: [id], onDelete: Cascade)
-  kelas Kelas         @relation(fields: [kelasId], references: [id], onDelete: Cascade)
+  kelas Kelas?        @relation(fields: [kelasId], references: [id], onDelete: Cascade)
   mapel MataPelajaran @relation(fields: [mataPelajaranId], references: [id], onDelete: Cascade)
 
   @@unique([guruId, kelasId, mataPelajaranId], map: "uq_penugasan_guru_kelas_mapel")

@@ -11,6 +11,7 @@ import fs from "fs";
 import { env } from "./config/env";
 import { prisma } from "./config/prisma";
 import { handlePrismaError, AppError } from "./utils/prismaError";
+import { USER_PUBLIC_SELECT, passwordPolicyError, loginLimiter, resolveUploadPath } from "./security";
 
 const loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
@@ -37,7 +38,7 @@ app.use(cors({
   credentials: true,
 }));
 app.use(morgan("dev"));
-app.use(express.json());
+app.use(express.json({ limit: "100kb" }));
 
 // Global async wrapper to prevent unhandled promise rejections from crashing the server
 const wrapHandler = (h: any): any => {
@@ -91,6 +92,13 @@ function authMiddleware(req: any, res: any, next: any) {
       prisma.user.findUnique({ where: { id: String(payload.userId) } }).then((u) => {
         if (!u || !u.isActive) return fail(res, 401, "UNAUTHORIZED", "Akun tidak aktif");
         req.user = u;
+        if (u.role === "KEPSEK") {
+          const isPasswordChange = req.method === "PUT" && req.path === "/api/auth/change-password";
+          const isAllowedRead = req.method === "GET" && /^\/api\/(guru|siswa|nilai|prestasi)(\/|$)/.test(req.path);
+          if (!isPasswordChange && !isAllowedRead && req.path !== "/api/auth/me") {
+            return fail(res, 403, "FORBIDDEN", "Kepala sekolah hanya memiliki akses baca data guru, siswa, nilai, dan prestasi");
+          }
+        }
         next();
       }).catch(() => fail(res, 401, "UNAUTHORIZED", "Token invalid"));
     } else fail(res, 401, "UNAUTHORIZED", "Token invalid");
@@ -114,12 +122,60 @@ async function guruForUser(userId: string) {
 async function isGuruOwnerOfSiswa(guruId: string, siswaId: string) {
   const s = await prisma.siswa.findUnique({ where: { id: siswaId }, include: { kelas: true } });
   if (!s || !s.kelasId) return false;
-  const pen = await prisma.penugasanGuru.findFirst({ where: { guruId, kelasId: s.kelasId } });
-  return !!pen;
+  const [guru, pen] = await Promise.all([
+    prisma.guru.findUnique({ where: { id: guruId }, select: { kelasWali: { where: { id: s.kelasId }, select: { id: true } } } }),
+    prisma.penugasanGuru.findFirst({ where: { guruId, OR: [{ kelasId: s.kelasId }, { kelasId: null }] } }),
+  ]);
+  return Boolean(guru?.kelasWali.length || pen);
 }
 
 async function hasPenugasan(guruId: string, kelasId: string, mapelId: string) {
-  return !!(await prisma.penugasanGuru.findFirst({ where: { guruId, kelasId, mataPelajaranId: mapelId } }));
+  const [guru, pen] = await Promise.all([
+    prisma.guru.findUnique({ where: { id: guruId, kelasWali: { some: { id: kelasId } } }, select: { id: true } }),
+    prisma.penugasanGuru.findFirst({ where: { guruId, mataPelajaranId: mapelId, OR: [{ kelasId }, { kelasId: null }] } }),
+  ]);
+  return Boolean(guru || pen);
+}
+
+type GuruScope = { guruId: string; kelasIds: string[] | "all" };
+
+async function guruClassScope(userId: string): Promise<GuruScope | null> {
+  const g = await guruForUser(userId);
+  if (!g) return null;
+  const [pens, wali] = await Promise.all([
+    prisma.penugasanGuru.findMany({ where: { guruId: g.id }, select: { kelasId: true } }),
+    prisma.kelas.findMany({ where: { waliKelasId: g.id }, select: { id: true } }),
+  ]);
+  if (pens.some((p) => p.kelasId === null)) return { guruId: g.id, kelasIds: "all" };
+  const kelasIds = [...new Set([...pens.flatMap((p) => (p.kelasId ? [p.kelasId] : [])), ...wali.map((k) => k.id)])];
+  return { guruId: g.id, kelasIds };
+}
+
+async function applyGuruSiswaScope(user: { id: string; role: string }, where: any, kelasId?: string) {
+  if (user.role !== "GURU") {
+    if (kelasId) where.kelasId = kelasId;
+    return { ok: true as const };
+  }
+  const scope = await guruClassScope(user.id);
+  if (!scope) return { ok: false as const, status: 403, message: "Profil guru tidak ditemukan" };
+  if (scope.kelasIds === "all") {
+    if (kelasId) where.kelasId = kelasId;
+    return { ok: true as const };
+  }
+  if (kelasId) {
+    if (!scope.kelasIds.includes(kelasId)) return { ok: false as const, status: 403, message: "Bukan tanggung jawab Anda" };
+    where.kelasId = kelasId;
+  } else {
+    where.kelasId = { in: scope.kelasIds };
+  }
+  return { ok: true as const };
+}
+
+async function guruCanAccessSiswa(user: { id: string; role: string }, siswaId: string) {
+  if (user.role !== "GURU") return true;
+  const g = await guruForUser(user.id);
+  if (!g) return false;
+  return isGuruOwnerOfSiswa(g.id, siswaId);
 }
 
 // ---------- AUTH ----------
@@ -153,7 +209,7 @@ app.put("/api/auth/change-password", authMiddleware, async (req: any, res) => {
 
 // ---------- USERS (admin) ----------
 app.get("/api/users", authMiddleware, requireRole("ADMIN"), async (_req, res) => {
-  const users = await prisma.user.findMany({ where: { role: "GURU" }, select: { id: true, name: true, email: true, role: true, isActive: true, createdAt: true } });
+  const users = await prisma.user.findMany({ where: { role: { in: ["GURU", "KEPSEK"] } }, select: { id: true, name: true, email: true, role: true, isActive: true, createdAt: true } });
   ok(res, users);
 });
 
@@ -354,11 +410,18 @@ app.get("/api/guru/:id/penugasan", authMiddleware, async (req, res) => {
 
 app.put("/api/guru/:id/penugasan", authMiddleware, requireRole("ADMIN"), async (req, res) => {
   const guruId = String(req.params.id);
-  const { penugasan } = req.body || {}; // array of {kelasId, mataPelajaranId}
+  const { penugasan } = req.body || {}; // array of {kelasId?: string|null, mataPelajaranId: string}
   await prisma.penugasanGuru.deleteMany({ where: { guruId } });
   if (Array.isArray(penugasan)) {
     for (const p of penugasan) {
-      await prisma.penugasanGuru.create({ data: { guruId, kelasId: String(p.kelasId), mataPelajaranId: String(p.mataPelajaranId) } });
+      if (!p.mataPelajaranId) return fail(res, 400, "VALIDATION_ERROR", "Mata pelajaran wajib dipilih");
+      await prisma.penugasanGuru.create({
+        data: {
+          guruId,
+          kelasId: p.kelasId ? String(p.kelasId) : null,
+          mataPelajaranId: String(p.mataPelajaranId),
+        },
+      });
     }
   }
   ok(res, await prisma.penugasanGuru.findMany({ where: { guruId } }));
@@ -489,8 +552,15 @@ app.get("/api/penugasan", authMiddleware, async (_req, res) => {
 
 app.post("/api/penugasan", authMiddleware, requireRole("ADMIN"), async (req, res) => {
   const { guruId, kelasId, mataPelajaranId } = req.body || {};
+  if (!guruId || !mataPelajaranId) return fail(res, 400, "VALIDATION_ERROR", "Guru dan mata pelajaran wajib dipilih");
   try {
-    ok(res, await prisma.penugasanGuru.create({ data: { guruId: String(guruId), kelasId: String(kelasId), mataPelajaranId: String(mataPelajaranId) } }));
+    ok(res, await prisma.penugasanGuru.create({
+      data: {
+        guruId: String(guruId),
+        kelasId: kelasId ? String(kelasId) : null,
+        mataPelajaranId: String(mataPelajaranId),
+      },
+    }));
   } catch (err) {
     sendError(res, err);
   }

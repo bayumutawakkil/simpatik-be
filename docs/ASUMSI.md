@@ -51,7 +51,14 @@ Dokumen ini mencatat asumsi operasional, aturan bisnis, dan keputusan desain str
 
 ---
 
-## 3. Hak Akses & Keamanan Data (Dual Role Setup)
+## 3. Hak Akses & Keamanan Data
+- **Role aplikasi:**
+  - `ADMIN`: akses penuh untuk pengelolaan master data dan akun.
+  - `GURU`: akses operasional sesuai cakupan `penugasan_guru`; dapat menjadi wali kelas melalui `kelas.wali_kelas_id`.
+  - `KEPSEK`: read-only untuk data guru, siswa, nilai, dan prestasi. Role ini tidak memiliki akses ke kelas, mapel, penugasan, kehadiran, monitoring, laporan, atau endpoint mutasi selain mengganti password sendiri.
+- **Cakupan guru:** wali kelas dan guru mapel bukan role terpisah. Seorang guru dapat memiliki keduanya. Wali kelas ditentukan oleh `kelas.wali_kelas_id` dan berwenang atas seluruh mata pelajaran di kelas tersebut. Guru mapel menggunakan `penugasan_guru`; `kelas_id` terisi untuk kelas tertentu atau `NULL` untuk seluruh kelas, sehingga satu mata pelajaran dapat dibagi ke beberapa guru berdasarkan kelas.
+
+### 3.1 Role database
 - **Role `simpatik_admin` (`DIRECT_URL`):**
   - Pemilik seluruh tabel, view, tipe, dan sequence.
   - Digunakan khusus oleh Prisma CLI untuk menjalankan migrasi DDL (`npx prisma migrate dev / deploy`).

@@ -16,7 +16,7 @@ CREATE EXTENSION IF NOT EXISTS pg_trgm;
 DO $$
 BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'role_pengguna') THEN
-    CREATE TYPE "role_pengguna" AS ENUM ('ADMIN', 'GURU');
+    CREATE TYPE "role_pengguna" AS ENUM ('ADMIN', 'GURU', 'KEPSEK');
   END IF;
 
   IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'jenis_kelamin') THEN
