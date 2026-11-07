@@ -956,7 +956,11 @@ app.delete("/api/prestasi/:id", authMiddleware, async (req: any, res) => {
 });
 
 const uploadDir = env.UPLOAD_DIR;
-if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
+try {
+  if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
+} catch (e) {
+  console.warn("[WARN] Gagal membuat direktori upload:", e);
+}
 
 const storage = multer.diskStorage({
   destination: uploadDir,
