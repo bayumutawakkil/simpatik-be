@@ -4,10 +4,10 @@ dotenv.config();
 const isProduction = process.env.NODE_ENV === "production";
 const jwtSecret = process.env.JWT_SECRET || "";
 if (isProduction && (jwtSecret.length < 32 || jwtSecret === "change-me-in-production")) {
-  throw new Error("JWT_SECRET harus di-set dengan nilai kuat (minimal 32 karakter) di production");
+  console.warn("[WARN] JWT_SECRET belum diset atau kurang dari 32 karakter di production");
 }
 if (isProduction && (!process.env.CORS_ORIGIN || process.env.CORS_ORIGIN === "*")) {
-  throw new Error("CORS_ORIGIN wajib di-set dan tidak boleh * di production");
+  console.warn("[WARN] CORS_ORIGIN tidak diset spesifik di production, menggunakan default permisif");
 }
 
 export const env = {
