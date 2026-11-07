@@ -5,21 +5,12 @@ import morgan from "morgan";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import multer from "multer";
-import rateLimit from "express-rate-limit";
 import path from "path";
 import fs from "fs";
 import { env } from "./config/env";
 import { prisma } from "./config/prisma";
 import { handlePrismaError, AppError } from "./utils/prismaError";
 import { USER_PUBLIC_SELECT, passwordPolicyError, loginLimiter, resolveUploadPath } from "./security";
-
-const loginLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 20,
-  message: { success: false, error: { code: "TOO_MANY_REQUESTS", message: "Terlalu banyak percobaan login. Silakan coba kembali beberapa saat lagi." } },
-  standardHeaders: true,
-  legacyHeaders: false,
-});
 
 export const app = express();
 app.use(helmet());
@@ -442,7 +433,7 @@ app.get("/api/siswa", authMiddleware, async (req: any, res) => {
     const g = await guruForUser(req.user.id);
     if (!g) return fail(res, 403, "FORBIDDEN", "Profil guru tidak ditemukan untuk akun ini");
     const pens = await prisma.penugasanGuru.findMany({ where: { guruId: g.id } });
-    const kelasIds = [...new Set(pens.map((p) => p.kelasId))];
+    const kelasIds = [...new Set(pens.map((p) => p.kelasId).filter((id): id is string => id !== null))];
     if (kelasId) {
       if (!kelasIds.includes(kelasId)) {
         return fail(res, 403, "FORBIDDEN", "Anda tidak memiliki akses ke kelas ini");
@@ -1159,7 +1150,7 @@ app.get("/api/dashboard/guru", authMiddleware, requireRole("GURU"), async (req: 
   const g = await guruForUser(req.user.id);
   if (!g) return ok(res, { kelasDiampu: 0, mapel: 0, siswa: 0 });
   const pens = await prisma.penugasanGuru.findMany({ where: { guruId: g.id } });
-  const kelasIds = [...new Set(pens.map((p) => p.kelasId))];
+  const kelasIds = [...new Set(pens.map((p) => p.kelasId).filter((id): id is string => id !== null))];
   const siswaCount = await prisma.siswa.count({ where: { kelasId: { in: kelasIds }, deletedAt: null } });
   ok(res, { kelasDiampu: kelasIds.length, mapel: pens.length, siswa: siswaCount });
 });
