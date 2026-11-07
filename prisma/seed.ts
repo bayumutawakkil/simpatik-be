@@ -21,6 +21,7 @@ async function main() {
   // 2. Users
   const pwAdmin = await bcrypt.hash("admin123", 10);
   const pwGuru = await bcrypt.hash("password123", 10);
+  const pwKepsek = await bcrypt.hash("password123", 10);
 
   const adminTest = await prisma.user.upsert({
     where: { email: "admin@simpatik.test" },
@@ -32,6 +33,12 @@ async function main() {
     where: { email: "admin@simpatik.local" },
     update: { passwordHash: pwAdmin, isActive: true },
     create: { name: "Administrator Lokal", email: "admin@simpatik.local", passwordHash: pwAdmin, role: RolePengguna.ADMIN, isActive: true },
+  });
+
+  await prisma.user.upsert({
+    where: { email: "kepsek@simpatik.test" },
+    update: { passwordHash: pwKepsek, isActive: true },
+    create: { name: "Kepala Sekolah", email: "kepsek@simpatik.test", passwordHash: pwKepsek, role: RolePengguna.KEPSEK, isActive: true },
   });
 
   const guruBambang = await prisma.user.upsert({
@@ -189,4 +196,3 @@ main()
   .finally(async () => {
     await prisma.$disconnect();
   });
-
