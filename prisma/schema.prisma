@@ -175,6 +175,7 @@ model Siswa {
   prestasi            Prestasi[]
   catatanPerkembangan CatatanPerkembangan[]
 
+  @@index([kelasId], map: "idx_siswa_kelas_id")
   @@map("siswa")
 }
 
@@ -182,6 +183,7 @@ model MataPelajaran {
   id        String    @id @default(dbgenerated("gen_random_uuid()")) @map("id") @db.Uuid
   kode      String    @unique @map("kode") @db.VarChar(10)
   nama      String    @map("nama") @db.VarChar(100)
+  kkm       Decimal   @default(75.00) @map("kkm") @db.Decimal(5, 2)
   deletedAt DateTime? @map("deleted_at") @db.Timestamptz(6)
   createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
@@ -232,6 +234,7 @@ model Nilai {
   @@unique([siswaId, mataPelajaranId, periode, jenis, pertemuan], map: "uq_nilai_siswa_mapel_periode_jenis_pertemuan")
   @@index([siswaId, mataPelajaranId, periode], map: "idx_nilai_siswa_mapel_periode")
   @@index([mataPelajaranId, periode], map: "idx_nilai_mapel_periode")
+  @@index([guruId], map: "idx_nilai_guru_id")
   @@map("nilai")
 }
 
@@ -254,6 +257,7 @@ model Kehadiran {
   @@unique([siswaId, mataPelajaranId, tanggal], map: "uq_kehadiran_siswa_mapel_tanggal")
   @@index([siswaId, tanggal], map: "idx_kehadiran_siswa_tanggal")
   @@index([mataPelajaranId, tanggal], map: "idx_kehadiran_mapel_tanggal")
+  @@index([guruId], map: "idx_kehadiran_guru_id")
   @@map("kehadiran")
 }
 
@@ -330,7 +334,7 @@ model PengaturanSistem {
 }
 
 model AuditLog {
-  id          BigInt   @id @default(autoincrement()) @map("id")
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @map("id") @db.Uuid
   userId      String?  @map("user_id") @db.Uuid
   aksi        String   @map("aksi") @db.VarChar(20)
   entitas     String   @map("entitas") @db.VarChar(50)

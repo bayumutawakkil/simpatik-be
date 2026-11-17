@@ -125,14 +125,26 @@ npm start
 
 ---
 
-## 6. Verifikasi di pgAdmin 4 & Pengujian
+## 6. Pengujian & Code Coverage (Testing)
 
-1. **pgAdmin 4**: Buka pgAdmin, daftarkan server `localhost:5432` dengan database `simpatik_db`.
-2. **Periksa Objek**: Pastikan 13 tabel dan 5 view terbentuk di schema `public`.
-3. **Jalankan Verifikasi Data**:
-   Buka **Query Tool** di pgAdmin dan jalankan file `be/database/scripts/verifikasi.sql`.
-   Semua pemeriksaan (jumlah akun, rentang nilai 0–100, keunikan presensi, kepemilikan guru, dan status verifikasi) harus menunjukkan status **LULUS**.
-4. **Jalankan Integration Test**:
-   ```bash
-   npm test
-   ```
+Proyek backend dilengkapi dengan pengujian otomatis menggunakan **Jest** dan **Supertest** yang mencakup:
+- **Unit Test Keamanan**: Validasi kebijakan password, sanitasi directory traversal, format respon error Prisma.
+- **Unit Test Mock Logika Bisnis**: Memalsukan kueri Prisma (`jest.mock`) untuk validasi aturan bisnis secara cepat dan aman.
+- **Integration Test**: Pengujian otentikasi login, JWT token, query filter soft-delete, dan audit log.
+
+### Menjalankan Pengujian:
+```bash
+# Menjalankan seluruh rangkaian tes
+npm test
+
+# Menjalankan tes dengan laporan code coverage lengkap
+npm run test:coverage
+```
+
+Laporan code coverage interaktif akan dibuat otomatis di folder:
+- **HTML**: `be/coverage/lcov-report/index.html`
+- **JSON**: `be/coverage/coverage-final.json`
+
+---
+
+## 7. Verifikasi di pgAdmin 4 & Pengujian Manual

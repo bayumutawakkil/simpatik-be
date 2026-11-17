@@ -1,0 +1,3 @@
+-- AlterTable
+ALTER TABLE "mata_pelajaran" ADD COLUMN IF NOT EXISTS "kkm" DECIMAL(5,2) NOT NULL DEFAULT 75.00;
+
