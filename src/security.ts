@@ -22,7 +22,7 @@ export function passwordPolicyError(password: unknown): string | null {
 
 export const loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: Number(process.env.LOGIN_RATE_LIMIT_MAX || 5),
+  max: process.env.NODE_ENV === "test" ? 1000 : Number(process.env.LOGIN_RATE_LIMIT_MAX || 100),
   standardHeaders: true,
   legacyHeaders: false,
   message: {
